@@ -1,0 +1,646 @@
+#!/usr/bin/env python3
+"""
+Bayesian Evidence Synthesis: Retinal Microplastics and Disease Causality
+========================================================================
+Implements the model from:
+"From Detection to Disease: A Bayesian Evidence Synthesis Assessing the
+Causal Role of Retinal Microplastics in Human Retinal Pathology"
+
+Ready for Kaggle Notebook / local Python environment.
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats
+from scipy.stats import gaussian_kde
+import warnings
+warnings.filterwarnings('ignore')
+
+# Set style for publication-quality figures
+plt.style.use('seaborn-v0_8-whitegrid')
+sns.set_context("paper", font_scale=1.3)
+plt.rcParams['figure.dpi'] = 150
+plt.rcParams['savefig.dpi'] = 300
+plt.rcParams['figure.figsize'] = (10, 6)
+
+# ============================================================================
+# 1. CORE BAYESIAN MODEL
+# ============================================================================
+
+def compute_posterior(prior, likelihood_ratios):
+    """
+    Compute posterior probability from prior and list of LRs.
+    
+    Parameters
+    ----------
+    prior : float
+        Prior probability P(H)
+    likelihood_ratios : list of float
+        Likelihood ratios LR_i = P(E_i | H) / P(E_i | ¬H)
+    
+    Returns
+    -------
+    posterior : float
+        Posterior probability P(H | E_1,...,E_n)
+    posterior_odds : float
+        Posterior odds
+    total_lr : float
+        Total likelihood ratio (product of all LRs)
+    """
+    prior_odds = prior / (1 - prior)
+    total_lr = np.prod(likelihood_ratios)
+    posterior_odds = prior_odds * total_lr
+    posterior = posterior_odds / (1 + posterior_odds)
+    return posterior, posterior_odds, total_lr
+
+
+# ============================================================================
+# 2. EVIDENCE NODE DEFINITIONS
+# ============================================================================
+
+# Define evidence nodes with labels, conditional probabilities, and LR
+evidence_nodes = {
+    'E1': {
+        'label': 'Detection in\nHuman Retina',
+        'full_label': 'E₁: MPs Detected in Human Retina (~49 μg/g)',
+        'p_E_given_H': 0.95,
+        'p_E_given_notH': 0.80,
+        'description': 'Zhang et al. (2025) confirmed MPs in 12/12 samples'
+    },
+    'E2': {
+        'label': 'Mechanistic\nToxicology',
+        'full_label': 'E₂: Convergent Mechanistic Evidence (in vitro/in vivo)',
+        'p_E_given_H': 0.90,
+        'p_E_given_notH': 0.25,
+        'description': 'BRB disruption, apoptosis, oxidative stress, inflammation'
+    },
+    'E3': {
+        'label': 'Absence of\nEpidemiology',
+        'full_label': 'E₃: Absence of Direct Human Epidemiological Data',
+        'p_E_given_H': 0.70,
+        'p_E_given_notH': 0.95,
+        'description': 'No cohort/case-control studies yet conducted'
+    },
+    'E4': {
+        'label': 'HRF–Disease\nAssociation',
+        'full_label': 'E₄: HRF Are Established Biomarkers of Retinal Disease',
+        'p_E_given_H': 0.95,
+        'p_E_given_notH': 0.85,
+        'description': 'HRF predict DR, AMD, RVO progression'
+    }
+}
+
+# Compute LRs for each node
+for key in evidence_nodes:
+    node = evidence_nodes[key]
+    node['LR'] = node['p_E_given_H'] / node['p_E_given_notH']
+
+# ============================================================================
+# 3. PRIMARY ANALYSIS: SEQUENTIAL BAYESIAN UPDATE
+# ============================================================================
+
+print("=" * 80)
+print("PRIMARY ANALYSIS: SEQUENTIAL BAYESIAN UPDATE")
+print("=" * 80)
+
+prior = 0.10
+print(f"\nPrior P(H) = {prior:.3f} (Prior odds = {prior/(1-prior):.4f})\n")
+
+# Sequential update
+results_table = []
+all_lrs = [evidence_nodes[key]['LR'] for key in evidence_nodes.keys()]
+
+# Add prior row
+results_table.append({
+    'Step': 0,
+    'Evidence': 'Prior only',
+    'LR_increment': 1.00,
+    'Cumulative_LR': 1.00,
+    'Posterior_Odds': prior/(1-prior),
+    'Posterior_P_H': prior
+})
+
+for i, (key, node) in enumerate(evidence_nodes.items(), 1):
+    lrs_so_far = all_lrs[:i]
+    current_posterior, posterior_odds, cumulative_lr = compute_posterior(prior, lrs_so_far)
+    
+    results_table.append({
+        'Step': i,
+        'Evidence': node['full_label'],
+        'LR_increment': node['LR'],
+        'Cumulative_LR': cumulative_lr,
+        'Posterior_Odds': posterior_odds,
+        'Posterior_P_H': current_posterior
+    })
+    
+    print(f"Step {i}: + {node['label'].replace(chr(10), ' ')}")
+    print(f"  LR = {node['LR']:.3f} | Cumulative LR = {cumulative_lr:.3f}")
+    print(f"  Posterior P(H) = {current_posterior:.4f} ({current_posterior*100:.2f}%)")
+    print()
+
+results_df = pd.DataFrame(results_table)
+final_posterior = results_df['Posterior_P_H'].iloc[-1]
+
+print(f"{'─' * 60}")
+print(f"FINAL POSTERIOR: P(H | all evidence) = {final_posterior:.4f} ({final_posterior*100:.2f}%)")
+print(f"FINAL POSTERIOR ODDS: {results_df['Posterior_Odds'].iloc[-1]:.4f}")
+print(f"TOTAL LIKELIHOOD RATIO: {results_df['Cumulative_LR'].iloc[-1]:.4f}")
+print(f"{'─' * 60}\n")
+
+# ============================================================================
+# 4. FIGURE 1: STEPWISE POSTERIOR UPDATE (WATERFALL/BAR CHART)
+# ============================================================================
+
+fig, ax = plt.subplots(figsize=(12, 7))
+
+steps = ['Prior'] + [node['label'] for node in evidence_nodes.values()]
+posteriors = [prior] + [results_df['Posterior_P_H'].iloc[i] for i in range(1, 5)]
+lrs = [1.0] + [node['LR'] for node in evidence_nodes.values()]
+
+colors = ['#4472C4'] + ['#ED7D31'] * 4  # Blue for prior, orange for evidence
+bars = ax.bar(range(len(steps)), posteriors, color=colors, edgecolor='white', linewidth=1.5, alpha=0.9)
+
+# Add LR annotations on bars
+for i, (bar, lr) in enumerate(zip(bars, lrs)):
+    height = bar.get_height()
+    if i == 0:
+        ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'Prior = {prior:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    else:
+        ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'LR = {lr:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        # Also show posterior value inside bar
+        if height > 0.15:
+            ax.text(bar.get_x() + bar.get_width()/2., height/2,
+                    f'{height:.3f}', ha='center', va='center', fontsize=11, 
+                    fontweight='bold', color='white')
+
+ax.set_xticks(range(len(steps)))
+ax.set_xticklabels(steps, fontsize=10)
+ax.set_ylabel('Posterior Probability P(H | Evidence)', fontsize=13, fontweight='bold')
+ax.set_title('Figure 1: Stepwise Bayesian Update of Causal Hypothesis\nRetinal Microplastics → Retinal Disease',
+             fontsize=14, fontweight='bold', pad=15)
+ax.set_ylim(0, max(posteriors) * 1.25)
+ax.axhline(y=prior, color='#4472C4', linestyle='--', linewidth=1.5, alpha=0.7, label=f'Prior = {prior:.2f}')
+ax.legend(fontsize=11, loc='upper left')
+ax.grid(axis='y', alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('figure1_stepwise_update.png', dpi=300, bbox_inches='tight')
+plt.show()
+print("✓ Figure 1 saved: figure1_stepwise_update.png\n")
+
+# ============================================================================
+# 5. SENSITIVITY ANALYSIS
+# ============================================================================
+
+print("=" * 80)
+print("SENSITIVITY ANALYSIS")
+print("=" * 80)
+
+# 5a. Varying the prior
+priors_to_test = [0.01, 0.03, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
+
+prior_sensitivity = []
+for p in priors_to_test:
+    post, _, _ = compute_posterior(p, all_lrs)
+    prior_sensitivity.append({'Prior': p, 'Posterior': post})
+
+prior_sens_df = pd.DataFrame(prior_sensitivity)
+print("\nSensitivity to Prior Probability:")
+print(prior_sens_df.to_string(index=False))
+
+# 5b. Varying the mechanistic LR (E2) — the most influential node
+lr2_range = np.arange(1.0, 10.1, 0.5)
+lr2_sensitivity = []
+
+for lr2 in lr2_range:
+    modified_lrs = all_lrs.copy()
+    modified_lrs[1] = lr2  # E2 is index 1
+    post, _, _ = compute_posterior(prior, modified_lrs)
+    lr2_sensitivity.append({'LR_E2': lr2, 'Posterior': post})
+
+lr2_sens_df = pd.DataFrame(lr2_sensitivity)
+
+# 5c. Varying dependence adjustment (reduce total LR by factor)
+dependence_factors = np.arange(0.1, 1.05, 0.05)
+dependence_sensitivity = []
+
+base_total_lr = np.prod(all_lrs)
+for factor in dependence_factors:
+    adjusted_lr = base_total_lr * factor
+    post, _, _ = compute_posterior(prior, [adjusted_lr])
+    dependence_sensitivity.append({
+        'Dependence_Factor': factor,
+        'Adjusted_Total_LR': adjusted_lr,
+        'Posterior': post
+    })
+
+dep_sens_df = pd.DataFrame(dependence_sensitivity)
+
+# ============================================================================
+# 6. MONTE CARLO UNCERTAINTY PROPAGATION
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("MONTE CARLO UNCERTAINTY PROPAGATION")
+print("=" * 80)
+
+# Define Beta distributions for each conditional probability
+# Beta(α, β) where:
+#   - mean ≈ α/(α+β) ≈ point estimate
+#   - concentration = α+β reflects confidence (higher = tighter)
+
+beta_params = {
+    'E1': {
+        'p_E_given_H': {'alpha': 19, 'beta': 1},    # mean ~0.95, tight
+        'p_E_given_notH': {'alpha': 16, 'beta': 4}   # mean ~0.80, moderate
+    },
+    'E2': {
+        'p_E_given_H': {'alpha': 18, 'beta': 2},     # mean ~0.90, moderate-tight
+        'p_E_given_notH': {'alpha': 5, 'beta': 15}   # mean ~0.25, moderate
+    },
+    'E3': {
+        'p_E_given_H': {'alpha': 14, 'beta': 6},     # mean ~0.70, moderate
+        'p_E_given_notH': {'alpha': 19, 'beta': 1}    # mean ~0.95, tight
+    },
+    'E4': {
+        'p_E_given_H': {'alpha': 19, 'beta': 1},     # mean ~0.95, tight
+        'p_E_given_notH': {'alpha': 17, 'beta': 3}   # mean ~0.85, moderate-tight
+    }
+}
+
+# Run Monte Carlo simulation
+n_simulations = 100000
+np.random.seed(42)  # Reproducibility
+
+# Storage for posterior samples
+posterior_samples = np.zeros(n_simulations)
+lr_samples = {key: np.zeros(n_simulations) for key in evidence_nodes.keys()}
+total_lr_samples = np.zeros(n_simulations)
+
+print(f"Running {n_simulations:,} Monte Carlo simulations...")
+
+for sim in range(n_simulations):
+    lrs = []
+    for key in evidence_nodes.keys():
+        # Sample from Beta distributions
+        p_h = np.random.beta(beta_params[key]['p_E_given_H']['alpha'],
+                              beta_params[key]['p_E_given_H']['beta'])
+        p_not_h = np.random.beta(beta_params[key]['p_E_given_notH']['alpha'],
+                                  beta_params[key]['p_E_given_notH']['beta'])
+        lr = p_h / p_not_h
+        lrs.append(lr)
+        lr_samples[key][sim] = lr
+    
+    total_lr = np.prod(lrs)
+    total_lr_samples[sim] = total_lr
+    posterior_samples[sim], _, _ = compute_posterior(prior, lrs)
+    
+    # Progress indicator
+    if (sim + 1) % 20000 == 0:
+        print(f"  Completed {sim+1:,} simulations...")
+
+print("Monte Carlo simulation complete.\n")
+
+# Compute summary statistics
+posterior_median = np.median(posterior_samples)
+posterior_mean = np.mean(posterior_samples)
+posterior_ci_95 = np.percentile(posterior_samples, [2.5, 97.5])
+posterior_ci_50 = np.percentile(posterior_samples, [25, 75])
+
+print(f"Monte Carlo Results ({n_simulations:,} iterations):")
+print(f"  Prior: {prior:.3f}")
+print(f"  Posterior Median: {posterior_median:.4f} ({posterior_median*100:.2f}%)")
+print(f"  Posterior Mean:   {posterior_mean:.4f} ({posterior_mean*100:.2f}%)")
+print(f"  95% Credible Interval: [{posterior_ci_95[0]:.4f}, {posterior_ci_95[1]:.4f}]")
+print(f"                        [{posterior_ci_95[0]*100:.1f}%, {posterior_ci_95[1]*100:.1f}%]")
+print(f"  50% Credible Interval: [{posterior_ci_50[0]:.4f}, {posterior_ci_50[1]:.4f}]")
+print(f"                        [{posterior_ci_50[0]*100:.1f}%, {posterior_ci_50[1]*100:.1f}%]")
+
+# ============================================================================
+# 7. FIGURE 2: TORNADO PLOT WITH EMPIRICAL LR RANGES
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("TORNADO ANALYSIS — Empirical LR Ranges (2.5th–97.5th percentiles)")
+print("=" * 80)
+
+# Extract 2.5th and 97.5th percentiles from Monte Carlo LR samples
+tornado_empirical = []
+for i, (key, node) in enumerate(evidence_nodes.items()):
+    lr_samples_node = lr_samples[key]
+    lr_low = np.percentile(lr_samples_node, 2.5)
+    lr_high = np.percentile(lr_samples_node, 97.5)
+    lr_base = node['LR']
+    
+    # Compute posteriors for low and high
+    lrs_all_low = all_lrs.copy()
+    lrs_all_low[i] = lr_low
+    post_low, _, _ = compute_posterior(prior, lrs_all_low)
+    
+    lrs_all_high = all_lrs.copy()
+    lrs_all_high[i] = lr_high
+    post_high, _, _ = compute_posterior(prior, lrs_all_high)
+    
+    tornado_empirical.append({
+        'Evidence': node['label'].replace('\n', ' '),
+        'Evidence_Key': key,
+        'LR_Base': lr_base,
+        'LR_Low': lr_low,
+        'LR_High': lr_high,
+        'Posterior_Low': post_low,
+        'Posterior_Base': final_posterior,
+        'Posterior_High': post_high,
+        'Range': post_high - post_low
+    })
+    
+    print(f"\n{key} ({node['label'].replace(chr(10), ' ')})")
+    print(f"  Base LR: {lr_base:.3f}")
+    print(f"  LR range (95% CI): [{lr_low:.3f}, {lr_high:.3f}]")
+    print(f"  Posterior range: [{post_low:.4f}, {post_high:.4f}] (width: {post_high-post_low:.4f})")
+
+tornado_emp_df = pd.DataFrame(tornado_empirical)
+tornado_emp_df = tornado_emp_df.sort_values('Range', ascending=True)
+
+# Create the tornado plot
+fig, ax = plt.subplots(figsize=(12, 7))
+
+y_pos = range(len(tornado_emp_df))
+
+# Plot bars with actual ranges
+for i, (idx, row) in enumerate(tornado_emp_df.iterrows()):
+    # Low side (left of base)
+    ax.barh(i, row['Posterior_Base'] - row['Posterior_Low'],
+            left=row['Posterior_Low'], height=0.5,
+            color='#5B9BD5', edgecolor='white', linewidth=0.8, alpha=0.85,
+            label='2.5th percentile LR' if i == 0 else '')
+    # High side (right of base)
+    ax.barh(i, row['Posterior_High'] - row['Posterior_Base'],
+            left=row['Posterior_Base'], height=0.5,
+            color='#ED7D31', edgecolor='white', linewidth=0.8, alpha=0.85,
+            label='97.5th percentile LR' if i == 0 else '')
+    
+    # Annotate with LR values on the bars
+    ax.text(row['Posterior_Low'] - 0.025, i, f'LR={row["LR_Low"]:.2f}',
+            ha='right', va='center', fontsize=8, color='#5B9BD5', fontweight='bold')
+    ax.text(row['Posterior_High'] + 0.025, i, f'LR={row["LR_High"]:.2f}',
+            ha='left', va='center', fontsize=8, color='#ED7D31', fontweight='bold')
+
+# Mark base posterior
+for i, (idx, row) in enumerate(tornado_emp_df.iterrows()):
+    ax.axvline(x=row['Posterior_Base'], ymin=(i-0.25)/len(tornado_emp_df),
+               ymax=(i+0.25)/len(tornado_emp_df), color='black', linewidth=2)
+
+# Base case vertical line
+ax.axvline(x=final_posterior, color='black', linestyle='--', linewidth=1.5,
+           alpha=0.7, label=f'Base posterior = {final_posterior:.3f}')
+
+# Prior line
+ax.axvline(x=prior, color='#4472C4', linestyle=':', linewidth=1.5, alpha=0.7,
+           label=f'Prior = {prior:.2f}')
+
+ax.set_yticks(y_pos)
+ax.set_yticklabels(tornado_emp_df['Evidence'], fontsize=10)
+ax.set_xlabel('Posterior Probability P(H | Evidence)', fontsize=13, fontweight='bold')
+ax.set_title('Figure 2: Tornado Plot — Sensitivity to Individual Likelihood Ratios\n(Empirical ranges from Monte Carlo: 2.5th–97.5th percentiles)',
+             fontsize=14, fontweight='bold', pad=15)
+ax.legend(fontsize=9, loc='lower right', ncol=2)
+ax.set_xlim(0, max(tornado_emp_df['Posterior_High']) * 1.2)
+ax.grid(axis='x', alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('figure2_tornado_plot.png', dpi=300, bbox_inches='tight')
+plt.show()
+print("\n✓ Figure 2 saved: figure2_tornado_plot.png\n")
+
+# ============================================================================
+# 8. FIGURE 3: SENSITIVITY HEATMAP (PRIOR × LR_E2)
+# ============================================================================
+
+fig, ax = plt.subplots(figsize=(10, 7))
+
+prior_grid = np.linspace(0.01, 0.50, 30)
+lr2_grid = np.linspace(1.0, 10.0, 30)
+posterior_grid = np.zeros((len(lr2_grid), len(prior_grid)))
+
+for i, lr2 in enumerate(lr2_grid):
+    for j, p in enumerate(prior_grid):
+        mod_lrs = all_lrs.copy()
+        mod_lrs[1] = lr2
+        post, _, _ = compute_posterior(p, mod_lrs)
+        posterior_grid[i, j] = post
+
+# Create heatmap
+im = ax.contourf(prior_grid, lr2_grid, posterior_grid, levels=20, cmap='RdYlBu_r')
+cs = ax.contour(prior_grid, lr2_grid, posterior_grid, levels=[0.10, 0.25, 0.50, 0.75], 
+                colors='black', linewidths=1.5)
+ax.clabel(cs, inline=True, fontsize=10, fmt='%.2f')
+
+# Mark base case
+ax.plot(prior, evidence_nodes['E2']['LR'], 'k*', markersize=15, 
+        markeredgecolor='white', markeredgewidth=1.5,
+        label=f'Base case: Prior={prior:.2f}, LR₂={evidence_nodes["E2"]["LR"]:.2f}')
+
+cbar = plt.colorbar(im, ax=ax, label='Posterior P(H | Evidence)', shrink=0.85)
+cbar.ax.tick_params(labelsize=10)
+
+ax.set_xlabel('Prior Probability P(H)', fontsize=13, fontweight='bold')
+ax.set_ylabel('Likelihood Ratio for E₂ (Mechanistic Evidence)', fontsize=13, fontweight='bold')
+ax.set_title('Figure 3: Sensitivity Heatmap — Prior × Mechanistic LR\n(Other LRs held at base values)',
+             fontsize=14, fontweight='bold', pad=15)
+ax.legend(fontsize=10, loc='upper left')
+
+plt.tight_layout()
+plt.savefig('figure3_sensitivity_heatmap.png', dpi=300, bbox_inches='tight')
+plt.show()
+print("✓ Figure 3 saved: figure3_sensitivity_heatmap.png\n")
+
+# ============================================================================
+# 9. FIGURE 4: POSTERIOR HISTOGRAM FROM MONTE CARLO
+# ============================================================================
+
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+# 9a. Posterior histogram with KDE
+ax = axes[0, 0]
+n, bins, patches = ax.hist(posterior_samples, bins=80, density=True, 
+                            color='#4472C4', alpha=0.75, edgecolor='white', linewidth=0.5)
+
+# Add KDE overlay
+kde = gaussian_kde(posterior_samples)
+x_kde = np.linspace(0, 1, 500)
+ax.plot(x_kde, kde(x_kde), 'r-', linewidth=2.5, label='KDE (smoothed density)')
+
+# Mark key statistics
+ax.axvline(posterior_median, color='#C00000', linestyle='-', linewidth=2.5, 
+           label=f'Median = {posterior_median:.3f}')
+ax.axvline(posterior_ci_95[0], color='gray', linestyle='--', linewidth=1.5, alpha=0.7)
+ax.axvline(posterior_ci_95[1], color='gray', linestyle='--', linewidth=1.5, alpha=0.7,
+           label=f'95% CI: [{posterior_ci_95[0]:.3f}, {posterior_ci_95[1]:.3f}]')
+ax.axvline(prior, color='#ED7D31', linestyle=':', linewidth=2, alpha=0.8,
+           label=f'Prior = {prior:.2f}')
+
+# Shade 95% CI
+ax.fill_betweenx([0, ax.get_ylim()[1]], posterior_ci_95[0], posterior_ci_95[1], 
+                  alpha=0.1, color='gray')
+
+ax.set_xlabel('Posterior Probability P(H | Evidence)', fontsize=11, fontweight='bold')
+ax.set_ylabel('Probability Density', fontsize=11, fontweight='bold')
+ax.set_title(f'A. Posterior Distribution (n={n_simulations:,})', fontsize=12, fontweight='bold')
+ax.legend(fontsize=8, loc='upper right')
+ax.set_xlim(0, 1)
+ax.grid(alpha=0.3)
+
+# 9b. Cumulative distribution
+ax = axes[0, 1]
+sorted_posterior = np.sort(posterior_samples)
+cumulative = np.arange(1, len(sorted_posterior) + 1) / len(sorted_posterior)
+
+ax.plot(sorted_posterior, cumulative, 'b-', linewidth=2)
+ax.fill_between(sorted_posterior, cumulative, alpha=0.2, color='#4472C4')
+
+# Mark percentiles
+for pct, color, label in [(2.5, '#C00000', '2.5th'), (50, '#ED7D31', 'Median'), (97.5, '#C00000', '97.5th')]:
+    val = np.percentile(posterior_samples, pct)
+    ax.axvline(val, color=color, linestyle='--', linewidth=1.5, alpha=0.7)
+    ax.axhline(pct/100, color=color, linestyle='--', linewidth=1.5, alpha=0.7)
+    if pct == 50:
+        ax.plot(val, pct/100, 'o', color=color, markersize=8, label=f'Median={val:.3f}')
+
+ax.set_xlabel('Posterior Probability P(H | Evidence)', fontsize=11, fontweight='bold')
+ax.set_ylabel('Cumulative Probability', fontsize=11, fontweight='bold')
+ax.set_title('B. Cumulative Distribution Function', fontsize=12, fontweight='bold')
+ax.legend(fontsize=9, loc='lower right')
+ax.set_xlim(0, 1)
+ax.set_ylim(0, 1)
+ax.grid(alpha=0.3)
+
+# 9c. Individual LR distributions
+ax = axes[1, 0]
+colors_lr = ['#4472C4', '#ED7D31', '#A5A5A5', '#FFC000']
+box_data = [lr_samples[key] for key in evidence_nodes.keys()]
+labels_lr = [evidence_nodes[key]['label'] for key in evidence_nodes.keys()]
+
+bp = ax.boxplot(box_data, labels=labels_lr, patch_artist=True, 
+                medianprops={'color': 'black', 'linewidth': 2},
+                flierprops={'marker': 'o', 'markerfacecolor': 'gray', 'markersize': 3, 'alpha': 0.5})
+
+for patch, color in zip(bp['boxes'], colors_lr):
+    patch.set_facecolor(color)
+    patch.set_alpha(0.7)
+
+# Add base LR markers
+for i, key in enumerate(evidence_nodes.keys(), 1):
+    ax.plot(i, evidence_nodes[key]['LR'], 'r*', markersize=12, markeredgecolor='black',
+            markeredgewidth=1, zorder=10)
+
+ax.axhline(y=1.0, color='black', linestyle='--', linewidth=1, alpha=0.5, label='LR = 1 (no evidence)')
+ax.set_ylabel('Likelihood Ratio', fontsize=11, fontweight='bold')
+ax.set_title('C. Likelihood Ratio Distributions\n(Red stars = base point estimates)', fontsize=12, fontweight='bold')
+ax.legend(fontsize=8, loc='upper right')
+ax.grid(axis='y', alpha=0.3)
+
+# 9d. Total LR distribution
+ax = axes[1, 1]
+ax.hist(total_lr_samples, bins=60, density=True, color='#70AD47', alpha=0.7, 
+        edgecolor='white', linewidth=0.5)
+
+total_lr_median = np.median(total_lr_samples)
+ax.axvline(total_lr_median, color='#C00000', linestyle='-', linewidth=2.5,
+           label=f'Median = {total_lr_median:.2f}')
+ax.axvline(np.prod(all_lrs), color='#ED7D31', linestyle='--', linewidth=2,
+           label=f'Point estimate = {np.prod(all_lrs):.2f}')
+
+ax.set_xlabel('Total Likelihood Ratio', fontsize=11, fontweight='bold')
+ax.set_ylabel('Probability Density', fontsize=11, fontweight='bold')
+ax.set_title('D. Total Likelihood Ratio Distribution', fontsize=12, fontweight='bold')
+ax.legend(fontsize=9, loc='upper right')
+ax.grid(alpha=0.3)
+
+plt.suptitle('Figure 4: Monte Carlo Uncertainty Propagation (100,000 Simulations)',
+             fontsize=15, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.savefig('figure4_monte_carlo.png', dpi=300, bbox_inches='tight')
+plt.show()
+print("✓ Figure 4 saved: figure4_monte_carlo.png\n")
+
+# ============================================================================
+# 10. SUMMARY TABLE
+# ============================================================================
+
+print("=" * 80)
+print("SUMMARY OF ALL RESULTS")
+print("=" * 80)
+
+summary_data = {
+    'Parameter': [
+        'Prior P(H)',
+        'Posterior P(H) — Point Estimate',
+        'Posterior P(H) — MC Median',
+        'Posterior P(H) — MC Mean',
+        '95% CI Lower',
+        '95% CI Upper',
+        '50% CI Lower',
+        '50% CI Upper',
+        'Total LR (point estimate)',
+        'Total LR (MC median)',
+        'Dominant Evidence Node',
+        'Strongest LR',
+        'Weakest LR'
+    ],
+    'Value': [
+        f'{prior:.3f}',
+        f'{final_posterior:.4f} ({final_posterior*100:.2f}%)',
+        f'{posterior_median:.4f} ({posterior_median*100:.2f}%)',
+        f'{posterior_mean:.4f} ({posterior_mean*100:.2f}%)',
+        f'{posterior_ci_95[0]:.4f} ({posterior_ci_95[0]*100:.2f}%)',
+        f'{posterior_ci_95[1]:.4f} ({posterior_ci_95[1]*100:.2f}%)',
+        f'{posterior_ci_50[0]:.4f} ({posterior_ci_50[0]*100:.2f}%)',
+        f'{posterior_ci_50[1]:.4f} ({posterior_ci_50[1]*100:.2f}%)',
+        f'{np.prod(all_lrs):.4f}',
+        f'{total_lr_median:.4f}',
+        'E₂ (Mechanistic Toxicology)',
+        f'E₂: {evidence_nodes["E2"]["LR"]:.2f}',
+        f'E₃: {evidence_nodes["E3"]["LR"]:.2f} (weakly against)'
+    ]
+}
+
+summary_df = pd.DataFrame(summary_data)
+print(summary_df.to_string(index=False))
+
+# ============================================================================
+# 11. EXPORT RESULTS TO CSV
+# ============================================================================
+
+results_df.to_csv('bayesian_results_sequential.csv', index=False)
+prior_sens_df.to_csv('sensitivity_prior.csv', index=False)
+lr2_sens_df.to_csv('sensitivity_lr2.csv', index=False)
+dep_sens_df.to_csv('sensitivity_dependence.csv', index=False)
+tornado_emp_df.to_csv('tornado_analysis_empirical.csv', index=False)
+
+# Monte Carlo samples (downsampled to avoid huge files)
+mc_export = pd.DataFrame({
+    'Posterior_Sample': posterior_samples,
+    'Total_LR': total_lr_samples
+})
+for key in evidence_nodes.keys():
+    mc_export[f'LR_{key}'] = lr_samples[key]
+mc_export.to_csv('monte_carlo_samples.csv', index=False)
+
+print("\n" + "=" * 80)
+print("ALL FILES EXPORTED:")
+print("  • figure1_stepwise_update.png")
+print("  • figure2_tornado_plot.png")
+print("  • figure3_sensitivity_heatmap.png")
+print("  • figure4_monte_carlo.png")
+print("  • bayesian_results_sequential.csv")
+print("  • sensitivity_prior.csv")
+print("  • sensitivity_lr2.csv")
+print("  • sensitivity_dependence.csv")
+print("  • tornado_analysis_empirical.csv")
+print("  • monte_carlo_samples.csv")
+print("=" * 80)
+print("\n✓ Analysis complete. Ready for paper submission.")

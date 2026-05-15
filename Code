@@ -3,8 +3,7 @@
 Bayesian Evidence Synthesis: Retinal Microplastics and Disease Causality
 ========================================================================
 Implements the model from:
-"From Detection to Disease: A Bayesian Evidence Synthesis Assessing the
-Causal Role of Retinal Microplastics in Human Retinal Pathology"
+"From Detection to Disease: A Bayesian Conceptual Framework for Evaluating the Potential Pathogenicity of Retinal Microplastics"
 
 Ready for Kaggle Notebook / local Python environment.
 """

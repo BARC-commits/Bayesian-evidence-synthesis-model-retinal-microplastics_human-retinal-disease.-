@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Bayesian Evidence Synthesis: Retinal Microplastics and Disease Causality
 ========================================================================
@@ -156,15 +157,15 @@ for i, (key, node) in enumerate(evidence_nodes.items(), 1):
     label_clean = node['label'].replace('\n', ' ')
     print(f"Step {i}: + {label_clean}")
     print(f"  LR = {node['LR']:.3f} | Cumulative LR = {cumulative_lr:.3f}")
-    print(f"  Posterior P(H) = {current_posterior:.4f} ({current_posterior*100:.2f}%)")
+    print(f"  Illustrative Posterior P(H) = {current_posterior:.4f} ({current_posterior*100:.2f}%)")
     print()
 
 results_df = pd.DataFrame(results_table)
 final_posterior = results_df['Posterior_P_H'].iloc[-1]
 
 print("─" * 60)
-print(f"BASE-CASE POSTERIOR: {final_posterior:.4f} ({final_posterior*100:.2f}%)")
-print(f"  (under the specified assumptions)")
+print(f"ILLUSTRATIVE POSTERIOR ESTIMATE (under base-case assumptions):")
+print(f"  {final_posterior:.4f} ({final_posterior*100:.2f}%)")
 print(f"Posterior odds: {results_df['Posterior_Odds'].iloc[-1]:.4f}")
 print(f"Total LR: {results_df['Cumulative_LR'].iloc[-1]:.4f}")
 print("─" * 60)
@@ -202,8 +203,8 @@ for i, (bar, lr, post) in enumerate(zip(bars, lrs, posteriors)):
 
 ax.set_xticks(range(len(steps)))
 ax.set_xticklabels(steps, fontsize=10)
-ax.set_ylabel('Posterior Probability P(H | Evidence)', fontsize=12, fontweight='bold')
-ax.set_title('Figure 1: Sequential Bayesian Update of Causal Hypothesis',
+ax.set_ylabel('Illustrative Posterior Probability P(H | Evidence)', fontsize=12, fontweight='bold')
+ax.set_title('Figure 1: Sequential Bayesian Update — Illustrative Posterior Estimates',
              fontsize=14, fontweight='bold', pad=15)
 ax.set_ylim(0, max(posteriors) * 1.3)
 ax.axhline(y=prior, color='#2C3E50', linestyle='--', linewidth=1.5, 
@@ -230,7 +231,7 @@ priors_to_test = [0.01, 0.03, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
 prior_sensitivity = []
 for p in priors_to_test:
     post, _, _ = compute_posterior(p, all_lrs)
-    prior_sensitivity.append({'Prior': p, 'Posterior': post})
+    prior_sensitivity.append({'Prior': p, 'Illustrative_Posterior': post})
 
 prior_sens_df = pd.DataFrame(prior_sensitivity)
 print("\nSensitivity to Prior Probability:")
@@ -245,7 +246,7 @@ for lr2 in lr2_range:
     modified_lrs = all_lrs.copy()
     modified_lrs[1] = lr2
     post, _, _ = compute_posterior(prior, modified_lrs)
-    lr2_sensitivity.append({'LR_E2': lr2, 'Posterior': post})
+    lr2_sensitivity.append({'LR_E2': lr2, 'Illustrative_Posterior': post})
 
 lr2_sens_df = pd.DataFrame(lr2_sensitivity)
 
@@ -260,7 +261,7 @@ for factor in dependence_factors:
     dependence_sensitivity.append({
         'Dependence_Adjustment': f'{int(factor*100)}%',
         'Adjusted_Total_LR': adjusted_lr,
-        'Posterior': post
+        'Illustrative_Posterior': post
     })
 
 dep_sens_df = pd.DataFrame(dependence_sensitivity)
@@ -312,8 +313,8 @@ posterior_ci_50 = np.percentile(posterior_samples, [25, 75])
 
 print("Monte Carlo Results (100,000 iterations):")
 print(f"  Prior: {prior:.3f}")
-print(f"  Posterior Median: {posterior_median:.4f} ({posterior_median*100:.2f}%)")
-print(f"  Posterior Mean:   {posterior_mean:.4f} ({posterior_mean*100:.2f}%)")
+print(f"  Illustrative Posterior Median: {posterior_median:.4f} ({posterior_median*100:.2f}%)")
+print(f"  Illustrative Posterior Mean:   {posterior_mean:.4f} ({posterior_mean*100:.2f}%)")
 print(f"  95% Credible Interval: [{posterior_ci_95[0]:.4f}, {posterior_ci_95[1]:.4f}]")
 print(f"                        [{posterior_ci_95[0]*100:.1f}%, {posterior_ci_95[1]*100:.1f}%]")
 print(f"  50% Credible Interval: [{posterior_ci_50[0]:.4f}, {posterior_ci_50[1]:.4f}]")
@@ -371,14 +372,14 @@ for i, (idx, row) in enumerate(tornado_df.iterrows()):
             ha='left', va='center', fontsize=8, color='#E74C3C')
 
 ax.axvline(x=final_posterior, color='black', linestyle='--', linewidth=1.5,
-           alpha=0.7, label=f'Base posterior = {final_posterior:.3f}')
+           alpha=0.7, label=f'Base illustrative posterior = {final_posterior:.3f}')
 ax.axvline(x=prior, color='#2C3E50', linestyle=':', linewidth=1.5, alpha=0.7,
            label=f'Prior = {prior:.2f}')
 
 ax.set_yticks(y_pos)
 ax.set_yticklabels(tornado_df['Evidence'], fontsize=10)
-ax.set_xlabel('Posterior Probability P(H | Evidence)', fontsize=12, fontweight='bold')
-ax.set_title('Figure 2: Tornado Plot — Sensitivity to Individual Likelihood Ratios\n'
+ax.set_xlabel('Illustrative Posterior Probability P(H | Evidence)', fontsize=12, fontweight='bold')
+ax.set_title('Figure 2: Tornado Plot — Sensitivity of Illustrative Posterior\n'
              '(2.5th–97.5th percentile LR ranges from Monte Carlo)',
              fontsize=13, fontweight='bold', pad=15)
 ax.legend(fontsize=9, loc='lower right')
@@ -418,12 +419,12 @@ ax.plot(prior, evidence_nodes['E2']['LR'], 'k*', markersize=18,
         markeredgecolor='white', markeredgewidth=1.5,
         label=f'Base case: Prior={prior:.2f}, LR₂={evidence_nodes["E2"]["LR"]:.2f}')
 
-cbar = plt.colorbar(im, ax=ax, label='Posterior P(H | Evidence)', shrink=0.85)
+cbar = plt.colorbar(im, ax=ax, label='Illustrative Posterior P(H | Evidence)', shrink=0.85)
 cbar.ax.tick_params(labelsize=10)
 
 ax.set_xlabel('Prior Probability P(H)', fontsize=12, fontweight='bold')
 ax.set_ylabel('Likelihood Ratio for E₂ (Mechanistic Evidence)', fontsize=12, fontweight='bold')
-ax.set_title('Figure 3: Sensitivity Heatmap — Prior vs. Mechanistic LR\n'
+ax.set_title('Figure 3: Sensitivity Heatmap — Illustrative Posterior vs. Prior and Mechanistic LR\n'
              '(Other LRs held at base-case values)',
              fontsize=13, fontweight='bold', pad=15)
 ax.legend(fontsize=10, loc='upper left')
@@ -459,9 +460,9 @@ ax.axvline(prior, color='#F39C12', linestyle=':', linewidth=2, alpha=0.8,
 ax.fill_betweenx([0, ax.get_ylim()[1]], posterior_ci_95[0], posterior_ci_95[1],
                   alpha=0.08, color='#7F8C8D')
 
-ax.set_xlabel('Posterior Probability', fontsize=11, fontweight='bold')
+ax.set_xlabel('Illustrative Posterior Probability', fontsize=11, fontweight='bold')
 ax.set_ylabel('Probability Density', fontsize=11, fontweight='bold')
-ax.set_title('A. Posterior Distribution', fontsize=12, fontweight='bold')
+ax.set_title('A. Illustrative Posterior Distribution', fontsize=12, fontweight='bold')
 ax.legend(fontsize=8, loc='upper right')
 ax.set_xlim(0, 1)
 ax.grid(alpha=0.2)
@@ -482,7 +483,7 @@ for pct, color in [(2.5, '#C0392B'), (50, '#E67E22'), (97.5, '#C0392B')]:
 ax.plot(posterior_median, 0.5, 'o', color='#E67E22', markersize=8,
         label=f'Median = {posterior_median:.3f}')
 
-ax.set_xlabel('Posterior Probability', fontsize=11, fontweight='bold')
+ax.set_xlabel('Illustrative Posterior Probability', fontsize=11, fontweight='bold')
 ax.set_ylabel('Cumulative Probability', fontsize=11, fontweight='bold')
 ax.set_title('B. Cumulative Distribution Function', fontsize=12, fontweight='bold')
 ax.legend(fontsize=9, loc='lower right')
@@ -533,7 +534,7 @@ ax.set_title('D. Total Likelihood Ratio Distribution', fontsize=12, fontweight='
 ax.legend(fontsize=9, loc='upper right')
 ax.grid(alpha=0.2)
 
-plt.suptitle('Figure 4: Monte Carlo Uncertainty Propagation (100,000 Simulations)',
+plt.suptitle('Figure 4: Monte Carlo Uncertainty Propagation — Illustrative Posterior',
              fontsize=14, fontweight='bold', y=1.02)
 plt.tight_layout()
 plt.savefig('figure4_monte_carlo.png', dpi=300, bbox_inches='tight')
@@ -565,13 +566,13 @@ for i, (bar, post) in enumerate(zip(bars, dep_posteriors)):
 ax.axhline(y=prior, color='#2C3E50', linestyle='--', linewidth=1.5, alpha=0.6,
            label=f'Prior = {prior:.2f}')
 ax.axhline(y=final_posterior, color='#E74C3C', linestyle=':', linewidth=1.5, alpha=0.6,
-           label=f'Base posterior = {final_posterior:.3f}')
+           label=f'Base illustrative posterior = {final_posterior:.3f}')
 
 ax.set_xticks(range(len(dep_posteriors)))
 ax.set_xticklabels(dep_labels, fontsize=10)
-ax.set_ylabel('Posterior Probability P(H | Evidence)', fontsize=12, fontweight='bold')
+ax.set_ylabel('Illustrative Posterior Probability P(H | Evidence)', fontsize=12, fontweight='bold')
 ax.set_xlabel('Dependence Assumption (proportion of total LR retained)', fontsize=12, fontweight='bold')
-ax.set_title('Figure 5: Sensitivity to Dependence Among Evidence Nodes',
+ax.set_title('Figure 5: Sensitivity to Dependence — Illustrative Posterior',
              fontsize=13, fontweight='bold', pad=15)
 ax.legend(fontsize=10, loc='upper left')
 ax.grid(axis='y', alpha=0.25)
@@ -587,15 +588,15 @@ print("✓ Figure 5 saved: figure5_dependence_sensitivity.png\n")
 # ============================================================================
 
 print("=" * 80)
-print("SUMMARY OF RESULTS")
+print("SUMMARY OF ILLUSTRATIVE RESULTS")
 print("=" * 80)
 
 summary_data = {
     'Parameter': [
         'Prior P(H)',
-        'Base-case Posterior P(H)',
-        'Posterior — MC Median',
-        'Posterior — MC Mean',
+        'Illustrative Posterior P(H) (base-case)',
+        'Illustrative Posterior — MC Median',
+        'Illustrative Posterior — MC Mean',
         '95% CI Lower',
         '95% CI Upper',
         '50% CI Lower',
